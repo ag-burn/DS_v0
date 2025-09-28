@@ -5,7 +5,7 @@ Please read the submitted Presentation for detailed information on the Project.
 
 # DS Setup Guide
 
-This is a deepfake-resistant verification system with a Next.js frontend and FastAPI backend for secure identity verification.
+This is a verification system with a Next.js frontend and FastAPI backend for secure identity verification.
 
 ## Prerequisites
 
