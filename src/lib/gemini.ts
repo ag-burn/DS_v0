@@ -24,6 +24,15 @@ export type LivenessAnalysis = {
   rawText?: string;
 };
 
+export type AudioAnalysis = {
+  phrase_match: boolean | null;
+  transcript?: string | null;
+  antispoof?: number | null;
+  av_sync?: number | null;
+  explanations: string[];
+  rawText?: string;
+};
+
 let warnedAboutKey = false;
 
 const toBase64 = (dataUrl: string) => {
@@ -103,6 +112,14 @@ const fallbackLivenessAnalysis = (direction: string): LivenessAnalysis => ({
   liveness_active: 0.82,
   liveness_passive: 0.78,
   challenge_direction: direction,
+  explanations: ['Gemini mock: set NEXT_PUBLIC_GEMINI_API_KEY for live responses.'],
+});
+
+const fallbackAudioAnalysis = (phrase: string): AudioAnalysis => ({
+  phrase_match: true,
+  transcript: phrase,
+  antispoof: 0.82,
+  av_sync: 0.8,
   explanations: ['Gemini mock: set NEXT_PUBLIC_GEMINI_API_KEY for live responses.'],
 });
 
@@ -326,6 +343,90 @@ export const assessLiveness = async ({
     challenge_direction: typeof parsed.challenge_direction === 'string'
       ? parsed.challenge_direction
       : challengeDirection,
+    explanations,
+    rawText: text,
+  };
+};
+
+export const assessAudio = async ({
+  audioDataUrl,
+  phrase,
+  mimeType,
+}: {
+  audioDataUrl: string;
+  phrase: string;
+  mimeType: string;
+}): Promise<AudioAnalysis> => {
+  if (!audioDataUrl) {
+    throw new Error('No audio provided for voice verification.');
+  }
+
+  const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
+  if (!apiKey) {
+    warnIfMissingKey();
+    return fallbackAudioAnalysis(phrase);
+  }
+
+  const response = await fetch(`${API_ROOT}?key=${apiKey}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            {
+              text: `You are verifying an identity using a spoken passphrase.\nPrompt given to user: "${phrase}".\nTasks:\n1) Transcribe the audio.\n2) Decide if the spoken audio matches the prompt (phrase_match).\n3) Estimate anti-spoof score (0-1) for replay/voice conversion detection.\n4) Estimate A/V sync score (0-1) if applicable.\nReturn ONLY JSON:\n{\n "phrase_match": boolean,\n "transcript": string,\n "antispoof": number,\n "av_sync": number,\n "explanations": string[]\n}`,
+            },
+            {
+              inline_data: {
+                mime_type: mimeType,
+                data: toBase64(audioDataUrl),
+              },
+            },
+          ],
+        },
+      ],
+    }),
+    cache: 'no-store',
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Gemini audio assessment failed: ${response.statusText} - ${errorText}`);
+  }
+
+  const payload = await response.json();
+  const text = pickFirstText(payload);
+  if (!text) {
+    throw new Error('Gemini did not provide a usable response for the audio assessment.');
+  }
+
+  const parsed = parseJson(text);
+  if (!parsed) {
+    return {
+      phrase_match: null,
+      transcript: null,
+      antispoof: null,
+      av_sync: null,
+      explanations: ['Could not parse Gemini response for voice verification.'],
+      rawText: text,
+    };
+  }
+
+  const antispoofScore = normalizeScore(parsed.antispoof);
+  const avSyncScore = normalizeScore(parsed.av_sync);
+  const explanations: string[] = Array.isArray(parsed.explanations)
+    ? parsed.explanations.filter((item: unknown): item is string => typeof item === 'string')
+    : [];
+
+  return {
+    phrase_match: typeof parsed.phrase_match === 'boolean' ? parsed.phrase_match : null,
+    transcript: typeof parsed.transcript === 'string' ? parsed.transcript : undefined,
+    antispoof: typeof antispoofScore === 'number' ? antispoofScore : null,
+    av_sync: typeof avSyncScore === 'number' ? avSyncScore : null,
     explanations,
     rawText: text,
   };

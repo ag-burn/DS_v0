@@ -15,7 +15,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { AlertTriangle } from 'lucide-react';
 import { Button } from './ui/button';
 import { matchFaces, verifyIdName } from '@/lib/gemini';
-import type { FaceAnalysis, IdAnalysis, LivenessAnalysis } from '@/lib/gemini';
+import type { FaceAnalysis, IdAnalysis, LivenessAnalysis, AudioAnalysis } from '@/lib/gemini';
 
 export function HybridIdGuardian() {
   const [step, setStep] = React.useState<VerificationStep>('welcome');
@@ -27,12 +27,13 @@ export function HybridIdGuardian() {
   const [idAnalysis, setIdAnalysis] = React.useState<IdAnalysis | null>(null);
   const [faceAnalysis, setFaceAnalysis] = React.useState<FaceAnalysis | null>(null);
   const [livenessAnalysis, setLivenessAnalysis] = React.useState<LivenessAnalysis | null>(null);
-  const [audioCaptured, setAudioCaptured] = React.useState(false);
+  const [audioAnalysis, setAudioAnalysis] = React.useState<AudioAnalysis | null>(null);
 
-  const handleVerification = async (hasAudio = audioCaptured) => {
+  const handleVerification = async (audioOverride?: AudioAnalysis | null) => {
     setStep('verifying');
     try {
-      if (!idAnalysis || !faceAnalysis || !livenessAnalysis) {
+      const audioInfo = audioOverride ?? audioAnalysis;
+      if (!idAnalysis || !faceAnalysis || !livenessAnalysis || !audioInfo) {
         throw new Error('Missing required checks before verification.');
       }
 
@@ -40,6 +41,8 @@ export function HybridIdGuardian() {
       const ocrScore = Math.max(0, Math.min(1, idAnalysis.confidence ?? (idAnalysis.matched ? 0.9 : 0.6)));
       const activeScore = Math.max(0, Math.min(1, livenessAnalysis.liveness_active ?? 0.6));
       const passiveScore = Math.max(0, Math.min(1, livenessAnalysis.liveness_passive ?? 0.6));
+      const audioScore = Math.max(0, Math.min(1, audioInfo.antispoof ?? 0.6));
+      const avSyncScore = Math.max(0, Math.min(1, audioInfo.av_sync ?? 0.76));
       const directionLabels: Record<string, string> = {
         up: 'Look up',
         down: 'Look down',
@@ -47,22 +50,26 @@ export function HybridIdGuardian() {
         right: 'Look right',
       };
       const challengeLabel = directionLabels[livenessAnalysis.challenge_direction] ?? livenessAnalysis.challenge_direction;
+      const phraseOk = audioInfo.phrase_match !== false;
       const allGood =
         idAnalysis.matched &&
         faceAnalysis.matched &&
         activeScore >= 0.75 &&
         passiveScore >= 0.7 &&
-        hasAudio;
+        audioScore >= 0.7 &&
+        phraseOk;
+
+      const aggregateScore = (faceScore + ocrScore + activeScore + passiveScore + audioScore) / 5;
 
       const verificationResult: VerificationResponse = {
         status: allGood ? 'verified' : 'review',
-        score: allGood ? (faceScore + ocrScore + activeScore + passiveScore) / 4 : 0.68,
+        score: aggregateScore,
         signals: {
           face_match: faceScore,
           liveness_active: activeScore,
           liveness_passive: passiveScore,
-          av_sync: 0.76,
-          audio_antispoof: hasAudio ? 0.8 : 0.45,
+          av_sync: avSyncScore,
+          audio_antispoof: audioScore,
           ocr_consistency: ocrScore,
         },
         explanations: allGood
@@ -77,7 +84,17 @@ export function HybridIdGuardian() {
               activeScore >= 0.75 && passiveScore >= 0.7
                 ? undefined
                 : `Liveness challenge (${challengeLabel}) needs review.`,
+              phraseOk
+                ? undefined
+                : 'Spoken phrase did not match the expected text.',
+              audioScore >= 0.7
+                ? undefined
+                : 'Voice anti-spoof score was low; recommend secondary review.',
+              audioInfo.transcript
+                ? `Detected speech: "${audioInfo.transcript}".`
+                : undefined,
               ...(livenessAnalysis.explanations?.length ? livenessAnalysis.explanations : []),
+              ...(audioInfo.explanations?.length ? audioInfo.explanations : []),
             ].filter((value): value is string => typeof value === 'string' && value.length > 0),
         referenceId: `VRF-${new Date().toISOString().replace(/\D/g, '').slice(0, 14)}`,
       };
@@ -99,7 +116,7 @@ export function HybridIdGuardian() {
     setIdAnalysis(null);
     setFaceAnalysis(null);
     setLivenessAnalysis(null);
-    setAudioCaptured(false);
+    setAudioAnalysis(null);
   };
 
   const handleNameNext = (name: string) => {
@@ -212,13 +229,13 @@ export function HybridIdGuardian() {
       case 'audio':
         return (
           <AudioCaptureStep
-            onNext={() => {
-              setAudioCaptured(true);
-              handleVerification(true);
-            }}
             onBack={() => {
-              setAudioCaptured(false);
+              setAudioAnalysis(null);
               setStep('liveness');
+            }}
+            onComplete={(analysis) => {
+              setAudioAnalysis(analysis);
+              handleVerification(analysis);
             }}
           />
         );
