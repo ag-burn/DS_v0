@@ -15,7 +15,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { AlertTriangle } from 'lucide-react';
 import { Button } from './ui/button';
 import { matchFaces, verifyIdName } from '@/lib/gemini';
-import type { FaceAnalysis, IdAnalysis } from '@/lib/gemini';
+import type { FaceAnalysis, IdAnalysis, LivenessAnalysis } from '@/lib/gemini';
 
 export function HybridIdGuardian() {
   const [step, setStep] = React.useState<VerificationStep>('welcome');
@@ -26,26 +26,41 @@ export function HybridIdGuardian() {
   const [selfieImage, setSelfieImage] = React.useState<string | null>(null);
   const [idAnalysis, setIdAnalysis] = React.useState<IdAnalysis | null>(null);
   const [faceAnalysis, setFaceAnalysis] = React.useState<FaceAnalysis | null>(null);
+  const [livenessAnalysis, setLivenessAnalysis] = React.useState<LivenessAnalysis | null>(null);
   const [audioCaptured, setAudioCaptured] = React.useState(false);
 
   const handleVerification = async (hasAudio = audioCaptured) => {
     setStep('verifying');
     try {
-      if (!idAnalysis || !faceAnalysis) {
+      if (!idAnalysis || !faceAnalysis || !livenessAnalysis) {
         throw new Error('Missing required checks before verification.');
       }
 
       const faceScore = Math.max(0, Math.min(1, faceAnalysis.similarity ?? (faceAnalysis.matched ? 0.86 : 0.55)));
       const ocrScore = Math.max(0, Math.min(1, idAnalysis.confidence ?? (idAnalysis.matched ? 0.9 : 0.6)));
-      const allGood = idAnalysis.matched && faceAnalysis.matched && hasAudio;
+      const activeScore = Math.max(0, Math.min(1, livenessAnalysis.liveness_active ?? 0.6));
+      const passiveScore = Math.max(0, Math.min(1, livenessAnalysis.liveness_passive ?? 0.6));
+      const directionLabels: Record<string, string> = {
+        up: 'Look up',
+        down: 'Look down',
+        left: 'Look left',
+        right: 'Look right',
+      };
+      const challengeLabel = directionLabels[livenessAnalysis.challenge_direction] ?? livenessAnalysis.challenge_direction;
+      const allGood =
+        idAnalysis.matched &&
+        faceAnalysis.matched &&
+        activeScore >= 0.75 &&
+        passiveScore >= 0.7 &&
+        hasAudio;
 
       const verificationResult: VerificationResponse = {
         status: allGood ? 'verified' : 'review',
-        score: allGood ? (faceScore + ocrScore) / 2 : 0.68,
+        score: allGood ? (faceScore + ocrScore + activeScore + passiveScore) / 4 : 0.68,
         signals: {
           face_match: faceScore,
-          liveness_active: 0.82,
-          liveness_passive: 0.78,
+          liveness_active: activeScore,
+          liveness_passive: passiveScore,
           av_sync: 0.76,
           audio_antispoof: hasAudio ? 0.8 : 0.45,
           ocr_consistency: ocrScore,
@@ -59,6 +74,10 @@ export function HybridIdGuardian() {
               idAnalysis.matched
                 ? 'Document name matched; manual reviewer will double-check additional attributes.'
                 : idAnalysis.reason ?? 'Name on the document did not fully match the provided value.',
+              activeScore >= 0.75 && passiveScore >= 0.7
+                ? undefined
+                : `Liveness challenge (${challengeLabel}) needs review.`,
+              ...(livenessAnalysis.explanations?.length ? livenessAnalysis.explanations : []),
             ].filter((value): value is string => typeof value === 'string' && value.length > 0),
         referenceId: `VRF-${new Date().toISOString().replace(/\D/g, '').slice(0, 14)}`,
       };
@@ -79,6 +98,7 @@ export function HybridIdGuardian() {
     setSelfieImage(null);
     setIdAnalysis(null);
     setFaceAnalysis(null);
+    setLivenessAnalysis(null);
     setAudioCaptured(false);
   };
 
@@ -180,7 +200,15 @@ export function HybridIdGuardian() {
           />
         );
       case 'liveness':
-        return <LivenessStep onNext={() => setStep('audio')} onBack={() => setStep('selfie')} />;
+        return (
+          <LivenessStep
+            onNext={() => setStep('audio')}
+            onBack={() => setStep('selfie')}
+            onComplete={(analysis) => {
+              setLivenessAnalysis(analysis);
+            }}
+          />
+        );
       case 'audio':
         return (
           <AudioCaptureStep

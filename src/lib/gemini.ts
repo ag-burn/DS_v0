@@ -16,6 +16,14 @@ export type FaceAnalysis = {
   rawText?: string;
 };
 
+export type LivenessAnalysis = {
+  liveness_active: number | null;
+  liveness_passive: number | null;
+  challenge_direction: string;
+  explanations: string[];
+  rawText?: string;
+};
+
 let warnedAboutKey = false;
 
 const toBase64 = (dataUrl: string) => {
@@ -89,6 +97,13 @@ const fallbackFaceAnalysis = (): FaceAnalysis => ({
   matched: true,
   similarity: 0.84,
   reason: 'Gemini mock: set NEXT_PUBLIC_GEMINI_API_KEY for live responses.',
+});
+
+const fallbackLivenessAnalysis = (direction: string): LivenessAnalysis => ({
+  liveness_active: 0.82,
+  liveness_passive: 0.78,
+  challenge_direction: direction,
+  explanations: ['Gemini mock: set NEXT_PUBLIC_GEMINI_API_KEY for live responses.'],
 });
 
 export const verifyIdName = async ({
@@ -228,6 +243,90 @@ export const matchFaces = async ({
     matched: Boolean(parsed.match),
     similarity: normalizeScore(parsed.similarity),
     reason: typeof parsed.reason === 'string' ? parsed.reason : undefined,
+    rawText: text,
+  };
+};
+
+export const assessLiveness = async ({
+  frames,
+  challengeDirection,
+}: {
+  frames: string[];
+  challengeDirection: string;
+}): Promise<LivenessAnalysis> => {
+  if (!Array.isArray(frames) || frames.length === 0) {
+    throw new Error('No frames captured for liveness assessment.');
+  }
+
+  const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
+  if (!apiKey) {
+    warnIfMissingKey();
+    return fallbackLivenessAnalysis(challengeDirection);
+  }
+
+  const trimmedFrames = frames.slice(0, 6);
+
+  const response = await fetch(`${API_ROOT}?key=${apiKey}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            {
+              text: `You are a liveness detection system.\nStep 1: User looked straight.\nStep 2: User was instructed to look ${challengeDirection}.\nProvided: sequential frames during the test.\nTasks:\n1) Did the user follow the challenge?\n2) Do the images look like a real live capture vs spoof/replay?\nReturn ONLY JSON:\n{\n "liveness_active": number,\n "liveness_passive": number,\n "challenge_direction": "${challengeDirection}",\n "explanations": string[]\n}`,
+            },
+            ...trimmedFrames.map((frame) => ({
+              inline_data: {
+                mime_type: 'image/jpeg',
+                data: toBase64(frame),
+              },
+            })),
+          ],
+        },
+      ],
+    }),
+    cache: 'no-store',
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Gemini liveness assessment failed: ${response.statusText} - ${errorText}`);
+  }
+
+  const payload = await response.json();
+  const text = pickFirstText(payload);
+  if (!text) {
+    throw new Error('Gemini did not provide a usable response for the liveness assessment.');
+  }
+
+  const parsed = parseJson(text);
+  if (!parsed) {
+    return {
+      liveness_active: null,
+      liveness_passive: null,
+      challenge_direction: challengeDirection,
+      explanations: ['Could not parse Gemini response for liveness assessment.'],
+      rawText: text,
+    };
+  }
+
+  const activeScore = normalizeScore(parsed.liveness_active);
+  const passiveScore = normalizeScore(parsed.liveness_passive);
+  const explanations: string[] = Array.isArray(parsed.explanations)
+    ? parsed.explanations.filter((item: unknown): item is string => typeof item === 'string')
+    : [];
+
+  return {
+    liveness_active: typeof activeScore === 'number' ? activeScore : null,
+    liveness_passive: typeof passiveScore === 'number' ? passiveScore : null,
+    challenge_direction: typeof parsed.challenge_direction === 'string'
+      ? parsed.challenge_direction
+      : challengeDirection,
+    explanations,
     rawText: text,
   };
 };
