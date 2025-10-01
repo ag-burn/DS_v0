@@ -2,7 +2,8 @@
 import * as React from 'react';
 import { StepWrapper } from './step-wrapper';
 import { Button } from '@/components/ui/button';
-import { Camera, Check, Loader2, RefreshCw, AlertCircle, ShieldCheck } from 'lucide-react';
+import { Camera, Check, Loader2, RefreshCw, ShieldCheck } from 'lucide-react';
+import { StepErrorPanel } from './step-error-panel';
 
 type DocumentCaptureStepProps = {
   onNext: () => void;
@@ -15,41 +16,43 @@ export function DocumentCaptureStep({ onNext, onBack, onConfirm }: DocumentCaptu
   const [stream, setStream] = React.useState<MediaStream | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
+  const [errorContext, setErrorContext] = React.useState<'camera' | 'verification' | null>(null);
   const [status, setStatus] = React.useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
 
   const videoRef = React.useRef<HTMLVideoElement>(null);
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
 
-  React.useEffect(() => {
-    async function setupCamera() {
-      setLoading(true);
-      setError(null);
-      try {
-        if (stream) {
-          stream.getTracks().forEach(track => track.stop());
-        }
-        const mediaStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-        setStream(mediaStream);
-        if (videoRef.current) {
-          videoRef.current.srcObject = mediaStream;
-        }
-      } catch (err) {
-        console.error('Error accessing camera:', err);
-        setError('Could not access camera. Please check permissions and try again.');
-      } finally {
-        setLoading(false);
+  const initializeCamera = React.useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    setErrorContext(null);
+    try {
+      stream?.getTracks().forEach((track) => track.stop());
+      const mediaStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      setStream(mediaStream);
+      if (videoRef.current) {
+        videoRef.current.srcObject = mediaStream;
       }
+    } catch (err) {
+      console.error('Error accessing camera:', err);
+      setError('Could not access camera. Please check permissions and try again.');
+      setErrorContext('camera');
+    } finally {
+      setLoading(false);
     }
-    setupCamera();
+  }, [stream]);
+
+  React.useEffect(() => {
+    initializeCamera();
 
     return () => {
-      stream?.getTracks().forEach(track => track.stop());
+      stream?.getTracks().forEach((track) => track.stop());
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const captureImage = () => {
+  const captureImage = React.useCallback(() => {
     if (videoRef.current && canvasRef.current) {
       const video = videoRef.current;
       const canvas = canvasRef.current;
@@ -60,16 +63,18 @@ export function DocumentCaptureStep({ onNext, onBack, onConfirm }: DocumentCaptu
       setImage(dataUrl);
       setStatus(null);
       setError(null);
+      setErrorContext(null);
     }
-  };
+  }, []);
 
-  const retakeImage = () => {
+  const retakeImage = React.useCallback(() => {
     setImage(null);
     setStatus(null);
     setError(null);
-  };
+    setErrorContext(null);
+  }, []);
 
-  const confirmImage = async () => {
+  const confirmImage = React.useCallback(async () => {
     if (!image) return;
     setIsSubmitting(true);
     setStatus('Checking ID details with Gemini...');
@@ -82,16 +87,32 @@ export function DocumentCaptureStep({ onNext, onBack, onConfirm }: DocumentCaptu
         }, 900);
       } else {
         setError(result.message);
+        setErrorContext('verification');
         setStatus(null);
       }
     } catch (err) {
       console.error('Error confirming ID:', err);
       setError('We could not verify the ID. Please try again.');
+      setErrorContext('verification');
       setStatus(null);
     } finally {
       setIsSubmitting(false);
     }
-  };
+  }, [image, onConfirm, onNext]);
+
+  const errorActions = React.useMemo(() => {
+    if (!error) return null;
+    if (errorContext === 'camera') {
+      return [
+        { label: 'Retry Camera', onClick: initializeCamera, variant: 'destructive' as const },
+        { label: 'Go Back', onClick: onBack, variant: 'outline' as const },
+      ];
+    }
+    return [
+      { label: 'Retake ID Photo', onClick: retakeImage, variant: 'secondary' as const },
+      { label: 'Go Back', onClick: onBack, variant: 'outline' as const },
+    ];
+  }, [error, errorContext, initializeCamera, onBack, retakeImage]);
 
   return (
     <StepWrapper
@@ -109,13 +130,14 @@ export function DocumentCaptureStep({ onNext, onBack, onConfirm }: DocumentCaptu
         </div>
       ) : undefined}
     >
+      {error && errorActions && (
+        <StepErrorPanel
+          title="We ran into a problem"
+          message={error}
+          actions={errorActions}
+        />
+      )}
       <div className="relative aspect-video w-full bg-secondary rounded-lg overflow-hidden flex items-center justify-center">
-        {error && (
-          <div className="text-center text-destructive-foreground p-4">
-            <AlertCircle className="mx-auto h-12 w-12" />
-            <p className="mt-2">{error}</p>
-          </div>
-        )}
         {loading && !error && <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />}
 
         <video

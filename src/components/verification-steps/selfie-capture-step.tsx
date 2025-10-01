@@ -2,7 +2,8 @@
 import * as React from 'react';
 import { StepWrapper } from './step-wrapper';
 import { Button } from '@/components/ui/button';
-import { Camera, Check, Loader2, RefreshCw, AlertCircle, ShieldCheck } from 'lucide-react';
+import { Camera, Check, Loader2, RefreshCw, ShieldCheck } from 'lucide-react';
+import { StepErrorPanel } from './step-error-panel';
 
 type SelfieCaptureStepProps = {
   onNext: () => void;
@@ -14,6 +15,7 @@ export function SelfieCaptureStep({ onNext, onBack, onConfirm }: SelfieCaptureSt
   const [stream, setStream] = React.useState<MediaStream | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
+  const [errorContext, setErrorContext] = React.useState<'camera' | 'capture' | 'verification' | null>(null);
   const [status, setStatus] = React.useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [selfie, setSelfie] = React.useState<string | null>(null);
@@ -21,27 +23,28 @@ export function SelfieCaptureStep({ onNext, onBack, onConfirm }: SelfieCaptureSt
   const videoRef = React.useRef<HTMLVideoElement>(null);
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
 
-  React.useEffect(() => {
-    async function setupCamera() {
-      setLoading(true);
-      setError(null);
-      try {
-        if (stream) {
-          stream.getTracks().forEach((track) => track.stop());
-        }
-        const mediaStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
-        setStream(mediaStream);
-        if (videoRef.current) {
-          videoRef.current.srcObject = mediaStream;
-        }
-      } catch (err) {
-        console.error('Error accessing camera:', err);
-        setError('Could not access camera. Please check permissions and try again.');
-      } finally {
-        setLoading(false);
+  const initializeCamera = React.useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    setErrorContext(null);
+    try {
+      stream?.getTracks().forEach((track) => track.stop());
+      const mediaStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+      setStream(mediaStream);
+      if (videoRef.current) {
+        videoRef.current.srcObject = mediaStream;
       }
+    } catch (err) {
+      console.error('Error accessing camera:', err);
+      setError('Could not access camera. Please check permissions and try again.');
+      setErrorContext('camera');
+    } finally {
+      setLoading(false);
     }
-    setupCamera();
+  }, [stream]);
+
+  React.useEffect(() => {
+    initializeCamera();
 
     return () => {
       stream?.getTracks().forEach((track) => track.stop());
@@ -49,7 +52,7 @@ export function SelfieCaptureStep({ onNext, onBack, onConfirm }: SelfieCaptureSt
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const captureSnapshot = () => {
+  const captureSnapshot = React.useCallback(() => {
     if (videoRef.current && canvasRef.current) {
       const video = videoRef.current;
       const canvas = canvasRef.current;
@@ -59,26 +62,29 @@ export function SelfieCaptureStep({ onNext, onBack, onConfirm }: SelfieCaptureSt
       return canvas.toDataURL('image/jpeg');
     }
     return null;
-  };
+  }, []);
 
-  const handleCapture = () => {
+  const handleCapture = React.useCallback(() => {
     const captured = captureSnapshot();
     if (!captured) {
       setError('Unable to capture selfie. Please try again.');
+      setErrorContext('capture');
       return;
     }
     setSelfie(captured);
     setError(null);
+    setErrorContext(null);
     setStatus('Selfie captured. Review before confirming.');
-  };
+  }, [captureSnapshot]);
 
-  const handleRetake = () => {
+  const handleRetake = React.useCallback(() => {
     setSelfie(null);
     setStatus(null);
     setError(null);
-  };
+    setErrorContext(null);
+  }, []);
 
-  const handleConfirm = async () => {
+  const handleConfirm = React.useCallback(async () => {
     if (!selfie) return;
     setIsSubmitting(true);
     setStatus('Matching your selfie with the ID photo using Gemini...');
@@ -91,16 +97,32 @@ export function SelfieCaptureStep({ onNext, onBack, onConfirm }: SelfieCaptureSt
         }, 900);
       } else {
         setError(result.message ?? 'We could not match your face to the ID.');
+        setErrorContext('verification');
         setStatus(null);
       }
     } catch (err) {
       console.error('Error confirming selfie:', err);
       setError('We could not validate the selfie. Please try again.');
+      setErrorContext('verification');
       setStatus(null);
     } finally {
       setIsSubmitting(false);
     }
-  };
+  }, [onConfirm, onNext, selfie]);
+
+  const errorActions = React.useMemo(() => {
+    if (!error) return null;
+    if (errorContext === 'camera' || errorContext === 'capture') {
+      return [
+        { label: 'Retry Camera', onClick: initializeCamera, variant: 'destructive' as const },
+        { label: 'Go Back', onClick: onBack, variant: 'outline' as const },
+      ];
+    }
+    return [
+      { label: 'Retake Selfie', onClick: handleRetake, variant: 'secondary' as const },
+      { label: 'Go Back', onClick: onBack, variant: 'outline' as const },
+    ];
+  }, [error, errorContext, handleRetake, initializeCamera, onBack]);
 
   return (
     <StepWrapper
@@ -118,13 +140,14 @@ export function SelfieCaptureStep({ onNext, onBack, onConfirm }: SelfieCaptureSt
         </div>
       ) : undefined}
     >
+      {error && errorActions && (
+        <StepErrorPanel
+          title="We ran into a problem"
+          message={error}
+          actions={errorActions}
+        />
+      )}
       <div className="relative aspect-square max-w-sm mx-auto bg-secondary rounded-full overflow-hidden flex items-center justify-center border-4 border-border">
-        {error && !selfie && (
-          <div className="text-center text-destructive-foreground p-4">
-            <AlertCircle className="mx-auto h-12 w-12" />
-            <p className="mt-2">{error}</p>
-          </div>
-        )}
         {loading && !error && !selfie && <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />}
 
         {!selfie && !loading && !error && (

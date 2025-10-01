@@ -3,8 +3,8 @@
 import * as React from 'react';
 import { StepWrapper } from './step-wrapper';
 import { Button } from '@/components/ui/button';
-import { Mic, MicOff, Check, Loader2, AlertCircle } from 'lucide-react';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Mic, MicOff, Check, Loader2 } from 'lucide-react';
+import { StepErrorPanel } from './step-error-panel';
 
 export function AudioCaptureStep({ onNext, onBack }: { onNext: () => void; onBack: () => void; }) {
   const [isRecording, setIsRecording] = React.useState(false);
@@ -12,49 +12,72 @@ export function AudioCaptureStep({ onNext, onBack }: { onNext: () => void; onBac
   const [mediaRecorder, setMediaRecorder] = React.useState<MediaRecorder | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(true);
+  const streamRef = React.useRef<MediaStream | null>(null);
+
+  const setupMic = React.useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    setAudioBlob(null);
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setError('Audio recording is not supported on this browser.');
+        return;
+      }
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      const recorder = new MediaRecorder(stream);
+      recorder.ondataavailable = (event) => {
+        setAudioBlob(event.data);
+      };
+      setMediaRecorder(recorder);
+    } catch (err) {
+      console.error('Error accessing microphone:', err);
+      setError('Could not access microphone. Please check permissions and try again.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   React.useEffect(() => {
-    async function setupMic() {
-      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          const recorder = new MediaRecorder(stream);
-          setMediaRecorder(recorder);
-          
-          recorder.ondataavailable = (e) => {
-            setAudioBlob(e.data);
-          };
-        } catch (err) {
-          console.error("Error accessing microphone:", err);
-          setError("Could not access microphone. Please check permissions and try again.");
-        } finally {
-            setLoading(false);
-        }
-      } else {
-        setError("Audio recording is not supported on this browser.");
-        setLoading(false);
-      }
-    }
     setupMic();
-    
+
     return () => {
-        mediaRecorder?.stream.getTracks().forEach(track => track.stop());
-    }
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const toggleRecording = () => {
+    if (!mediaRecorder) {
+      setError('Recorder is not ready. Try setting up your microphone again.');
+      return;
+    }
     if (isRecording) {
-      mediaRecorder?.stop();
+      mediaRecorder.stop();
       setIsRecording(false);
     } else {
       setAudioBlob(null);
-      mediaRecorder?.start();
-      setIsRecording(true);
+      try {
+        mediaRecorder.start();
+        setIsRecording(true);
+      } catch (err) {
+        console.error('Unable to start recording:', err);
+        setError('We could not start recording. Please retry microphone setup.');
+        setIsRecording(false);
+      }
     }
   };
 
   const phraseToRead = "My voice is my password, and I am verifying my identity.";
+
+  const errorActions = React.useMemo(() => {
+    if (!error) return null;
+    return [
+      { label: 'Retry Microphone', onClick: setupMic, variant: 'destructive' as const },
+      { label: 'Go Back', onClick: onBack, variant: 'outline' as const },
+    ];
+  }, [error, onBack, setupMic]);
 
   return (
     <StepWrapper
@@ -69,12 +92,12 @@ export function AudioCaptureStep({ onNext, onBack }: { onNext: () => void; onBac
         <p className="text-2xl font-headline font-medium text-foreground">"{phraseToRead}"</p>
       </div>
 
-      {error && (
-        <Alert variant="destructive" className="mt-6">
-            <AlertCircle className="h-4 w-4"/>
-            <AlertTitle>Microphone Error</AlertTitle>
-            <AlertDescription>{error}</AlertDescription>
-        </Alert>
+      {error && errorActions && (
+        <StepErrorPanel
+          title="We couldn't access your microphone"
+          message={error}
+          actions={errorActions}
+        />
       )}
 
       {loading && <div className="flex justify-center items-center mt-6"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>}
