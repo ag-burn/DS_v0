@@ -17,8 +17,7 @@ export type FaceAnalysis = {
 };
 
 export type LivenessAnalysis = {
-  liveness_active: number | null;
-  liveness_passive: number | null;
+  liveness: number | null;
   challenge_direction: string;
   explanations: string[];
   rawText?: string;
@@ -28,7 +27,6 @@ export type AudioAnalysis = {
   phrase_match: boolean | null;
   transcript?: string | null;
   antispoof?: number | null;
-  av_sync?: number | null;
   explanations: string[];
   rawText?: string;
 };
@@ -58,6 +56,12 @@ const parseJson = (raw: string) => {
 };
 
 const normalizeScore = (value: unknown) => {
+  if (typeof value === 'string' && value.trim() !== '') {
+    const coerced = Number(value);
+    if (!Number.isNaN(coerced)) {
+      value = coerced;
+    }
+  }
   if (typeof value !== 'number') {
     return undefined;
   }
@@ -109,8 +113,7 @@ const fallbackFaceAnalysis = (): FaceAnalysis => ({
 });
 
 const fallbackLivenessAnalysis = (direction: string): LivenessAnalysis => ({
-  liveness_active: 0.82,
-  liveness_passive: 0.78,
+  liveness: 0.8,
   challenge_direction: direction,
   explanations: ['Gemini mock: set NEXT_PUBLIC_GEMINI_API_KEY for live responses.'],
 });
@@ -119,7 +122,6 @@ const fallbackAudioAnalysis = (phrase: string): AudioAnalysis => ({
   phrase_match: true,
   transcript: phrase,
   antispoof: 0.82,
-  av_sync: 0.8,
   explanations: ['Gemini mock: set NEXT_PUBLIC_GEMINI_API_KEY for live responses.'],
 });
 
@@ -294,7 +296,7 @@ export const assessLiveness = async ({
           role: 'user',
           parts: [
             {
-              text: `You are a liveness detection system.\nStep 1: User looked straight.\nStep 2: User was instructed to look ${challengeDirection}.\nProvided: sequential frames during the test.\nTasks:\n1) Did the user follow the challenge?\n2) Do the images look like a real live capture vs spoof/replay?\nReturn ONLY JSON:\n{\n "liveness_active": number,\n "liveness_passive": number,\n "challenge_direction": "${challengeDirection}",\n "explanations": string[]\n}`,
+              text: `You are a liveness detection system.\nStep 1: User looked straight.\nStep 2: User was instructed to look ${challengeDirection}.\nProvided: sequential frames during the test.\nTasks:\n1) Did the user follow the challenge?\n2) Do the images look like a real live capture vs spoof/replay?\nReturn ONLY JSON:\n{\n "liveness": number,\n "challenge_direction": "${challengeDirection}",\n "explanations": string[]\n}`,
             },
             ...trimmedFrames.map((frame) => ({
               inline_data: {
@@ -323,23 +325,22 @@ export const assessLiveness = async ({
   const parsed = parseJson(text);
   if (!parsed) {
     return {
-      liveness_active: null,
-      liveness_passive: null,
+      liveness: null,
       challenge_direction: challengeDirection,
       explanations: ['Could not parse Gemini response for liveness assessment.'],
       rawText: text,
     };
   }
 
-  const activeScore = normalizeScore(parsed.liveness_active);
-  const passiveScore = normalizeScore(parsed.liveness_passive);
+  const livenessScore = normalizeScore(parsed.liveness)
+    ?? normalizeScore(parsed.liveness_active)
+    ?? normalizeScore(parsed.liveness_passive);
   const explanations: string[] = Array.isArray(parsed.explanations)
     ? parsed.explanations.filter((item: unknown): item is string => typeof item === 'string')
     : [];
 
   return {
-    liveness_active: typeof activeScore === 'number' ? activeScore : null,
-    liveness_passive: typeof passiveScore === 'number' ? passiveScore : null,
+    liveness: typeof livenessScore === 'number' ? livenessScore : null,
     challenge_direction: typeof parsed.challenge_direction === 'string'
       ? parsed.challenge_direction
       : challengeDirection,
@@ -378,7 +379,7 @@ export const assessAudio = async ({
           role: 'user',
           parts: [
             {
-              text: `You are verifying an identity using a spoken passphrase.\nPrompt given to user: "${phrase}".\nTasks:\n1) Transcribe the audio.\n2) Decide if the spoken audio matches the prompt (phrase_match).\n3) Estimate anti-spoof score (0-1) for replay/voice conversion detection.\n4) Estimate A/V sync score (0-1) if applicable.\nReturn ONLY JSON:\n{\n "phrase_match": boolean,\n "transcript": string,\n "antispoof": number,\n "av_sync": number,\n "explanations": string[]\n}`,
+              text: `You are verifying an identity using a spoken passphrase.\nPrompt given to user: "${phrase}".\nTasks:\n1) Transcribe the audio.\n2) Decide if the spoken audio matches the prompt (phrase_match).\n3) Estimate anti-spoof score (0-1) for replay/voice conversion detection.\nReturn ONLY JSON:\n{\n "phrase_match": boolean,\n "transcript": string,\n "antispoof": number,\n "explanations": string[]\n}`,
             },
             {
               inline_data: {
@@ -410,14 +411,12 @@ export const assessAudio = async ({
       phrase_match: null,
       transcript: null,
       antispoof: null,
-      av_sync: null,
       explanations: ['Could not parse Gemini response for voice verification.'],
       rawText: text,
     };
   }
 
   const antispoofScore = normalizeScore(parsed.antispoof);
-  const avSyncScore = normalizeScore(parsed.av_sync);
   const explanations: string[] = Array.isArray(parsed.explanations)
     ? parsed.explanations.filter((item: unknown): item is string => typeof item === 'string')
     : [];
@@ -426,7 +425,6 @@ export const assessAudio = async ({
     phrase_match: typeof parsed.phrase_match === 'boolean' ? parsed.phrase_match : null,
     transcript: typeof parsed.transcript === 'string' ? parsed.transcript : undefined,
     antispoof: typeof antispoofScore === 'number' ? antispoofScore : null,
-    av_sync: typeof avSyncScore === 'number' ? avSyncScore : null,
     explanations,
     rawText: text,
   };

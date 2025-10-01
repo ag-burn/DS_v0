@@ -39,10 +39,8 @@ export function HybridIdGuardian() {
 
       const faceScore = Math.max(0, Math.min(1, faceAnalysis.similarity ?? (faceAnalysis.matched ? 0.86 : 0.55)));
       const ocrScore = Math.max(0, Math.min(1, idAnalysis.confidence ?? (idAnalysis.matched ? 0.9 : 0.6)));
-      const activeScore = Math.max(0, Math.min(1, livenessAnalysis.liveness_active ?? 0.6));
-      const passiveScore = Math.max(0, Math.min(1, livenessAnalysis.liveness_passive ?? 0.6));
+      const livenessScore = Math.max(0, Math.min(1, livenessAnalysis.liveness ?? 0.6));
       const audioScore = Math.max(0, Math.min(1, audioInfo.antispoof ?? 0.6));
-      const avSyncScore = Math.max(0, Math.min(1, audioInfo.av_sync ?? 0.76));
       const directionLabels: Record<string, string> = {
         up: 'Look up',
         down: 'Look down',
@@ -54,21 +52,18 @@ export function HybridIdGuardian() {
       const allGood =
         idAnalysis.matched &&
         faceAnalysis.matched &&
-        activeScore >= 0.75 &&
-        passiveScore >= 0.7 &&
+        livenessScore >= 0.75 &&
         audioScore >= 0.7 &&
         phraseOk;
 
-      const aggregateScore = (faceScore + ocrScore + activeScore + passiveScore + audioScore) / 5;
+      const aggregateScore = (faceScore + ocrScore + livenessScore + audioScore) / 4;
 
       const verificationResult: VerificationResponse = {
         status: allGood ? 'verified' : 'review',
         score: aggregateScore,
         signals: {
           face_match: faceScore,
-          liveness_active: activeScore,
-          liveness_passive: passiveScore,
-          av_sync: avSyncScore,
+          liveness: livenessScore,
           audio_antispoof: audioScore,
           ocr_consistency: ocrScore,
         },
@@ -81,7 +76,7 @@ export function HybridIdGuardian() {
               idAnalysis.matched
                 ? 'Document name matched; manual reviewer will double-check additional attributes.'
                 : idAnalysis.reason ?? 'Name on the document did not fully match the provided value.',
-              activeScore >= 0.75 && passiveScore >= 0.7
+              livenessScore >= 0.75
                 ? undefined
                 : `Liveness challenge (${challengeLabel}) needs review.`,
               phraseOk

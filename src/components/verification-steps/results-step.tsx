@@ -34,13 +34,11 @@ const statusConfig = {
 };
 
 const signalLabels: Record<keyof VerificationSignals, string> = {
-    face_match: 'Face Match',
-    liveness_active: 'Active Liveness',
-    liveness_passive: 'Passive Liveness',
-    av_sync: 'A/V Sync',
-    audio_antispoof: 'Audio Anti-Spoof',
-    ocr_consistency: 'Document Consistency'
-}
+  face_match: 'Face Match',
+  liveness: 'Liveness',
+  audio_antispoof: 'Audio Anti-Spoof',
+  ocr_consistency: 'Document Consistency',
+};
 
 function SignalBar({ label, score }: { label: string; score: number }) {
   const percentage = Math.round(score * 100);

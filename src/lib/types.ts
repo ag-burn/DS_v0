@@ -1,8 +1,6 @@
 export type VerificationSignals = {
   face_match: number;
-  liveness_active: number;
-  liveness_passive: number;
-  av_sync: number;
+  liveness: number;
   audio_antispoof: number;
   ocr_consistency: number;
 };
