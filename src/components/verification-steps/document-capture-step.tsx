@@ -2,17 +2,21 @@
 import * as React from 'react';
 import { StepWrapper } from './step-wrapper';
 import { Button } from '@/components/ui/button';
-import { Camera, Check, Loader2, RefreshCw, AlertCircle } from 'lucide-react';
+import { Camera, Check, Loader2, RefreshCw, AlertCircle, ShieldCheck } from 'lucide-react';
 
-type CaptureMode = 'front' | 'back';
+type DocumentCaptureStepProps = {
+  onNext: () => void;
+  onBack: () => void;
+  onConfirm: (image: string) => Promise<{ success: boolean; message: string; extractedName?: string }>
+};
 
-export function DocumentCaptureStep({ onNext, onBack }: { onNext: () => void; onBack: () => void; }) {
-  const [mode, setMode] = React.useState<CaptureMode>('front');
-  const [frontImage, setFrontImage] = React.useState<string | null>(null);
-  const [backImage, setBackImage] = React.useState<string | null>(null);
+export function DocumentCaptureStep({ onNext, onBack, onConfirm }: DocumentCaptureStepProps) {
+  const [image, setImage] = React.useState<string | null>(null);
   const [stream, setStream] = React.useState<MediaStream | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
+  const [status, setStatus] = React.useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
 
   const videoRef = React.useRef<HTMLVideoElement>(null);
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
@@ -31,8 +35,8 @@ export function DocumentCaptureStep({ onNext, onBack }: { onNext: () => void; on
           videoRef.current.srcObject = mediaStream;
         }
       } catch (err) {
-        console.error("Error accessing camera:", err);
-        setError("Could not access camera. Please check permissions and try again.");
+        console.error('Error accessing camera:', err);
+        setError('Could not access camera. Please check permissions and try again.');
       } finally {
         setLoading(false);
       }
@@ -45,8 +49,6 @@ export function DocumentCaptureStep({ onNext, onBack }: { onNext: () => void; on
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const currentImage = mode === 'front' ? frontImage : backImage;
-
   const captureImage = () => {
     if (videoRef.current && canvasRef.current) {
       const video = videoRef.current;
@@ -55,49 +57,64 @@ export function DocumentCaptureStep({ onNext, onBack }: { onNext: () => void; on
       canvas.height = video.videoHeight;
       canvas.getContext('2d')?.drawImage(video, 0, 0, video.videoWidth, video.videoHeight);
       const dataUrl = canvas.toDataURL('image/jpeg');
-      if (mode === 'front') {
-        setFrontImage(dataUrl);
-      } else {
-        setBackImage(dataUrl);
-      }
+      setImage(dataUrl);
+      setStatus(null);
+      setError(null);
     }
   };
 
   const retakeImage = () => {
-    if (mode === 'front') {
-      setFrontImage(null);
-    } else {
-      setBackImage(null);
-    }
+    setImage(null);
+    setStatus(null);
+    setError(null);
   };
 
-  const confirmImage = () => {
-    if (mode === 'front') {
-      setMode('back');
-    } else {
-      onNext();
+  const confirmImage = async () => {
+    if (!image) return;
+    setIsSubmitting(true);
+    setStatus('Checking ID details with Gemini...');
+    try {
+      const result = await onConfirm(image);
+      if (result.success) {
+        setStatus(result.message ?? 'ID details look good.');
+        setTimeout(() => {
+          onNext();
+        }, 900);
+      } else {
+        setError(result.message);
+        setStatus(null);
+      }
+    } catch (err) {
+      console.error('Error confirming ID:', err);
+      setError('We could not verify the ID. Please try again.');
+      setStatus(null);
+    } finally {
+      setIsSubmitting(false);
     }
   };
-
-  const description = mode === 'front' 
-    ? 'Position the front of your ID card within the frame.'
-    : 'Now, position the back of your ID card within the frame.';
 
   return (
     <StepWrapper
-      title="Scan Your ID Document"
-      description={description}
+      title="Scan the Front of Your ID"
+      description="Align the front of your government-issued ID within the frame and capture a clear photo."
       onNext={confirmImage}
-      onBack={mode === 'front' ? onBack : () => { setMode('front'); setBackImage(null); }}
-      isNextDisabled={!currentImage}
-      nextText={mode === 'front' ? 'Confirm Front' : 'Confirm Back & Continue'}
+      onBack={onBack}
+      isNextDisabled={!image || isSubmitting}
+      nextText={isSubmitting ? 'Verifying...' : 'Confirm & Continue'}
+      isLoading={isSubmitting}
+      footerContent={status ? (
+        <div className="flex items-center gap-2 text-sm text-foreground/80">
+          <ShieldCheck className="h-4 w-4 text-primary" />
+          <span>{status}</span>
+        </div>
+      ) : undefined}
     >
       <div className="relative aspect-video w-full bg-secondary rounded-lg overflow-hidden flex items-center justify-center">
         {error && (
-            <div className="text-center text-destructive-foreground p-4">
-                <AlertCircle className="mx-auto h-12 w-12" />
-                <p className="mt-2">{error}</p>
-            </div>
+          <div className="text-center text-destructive-foreground p-4">
+            <AlertCircle className="mx-auto h-12 w-12" />
+            <p className="mt-2">{error}</p>
+          </div>
         )}
         {loading && !error && <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />}
 
@@ -105,26 +122,26 @@ export function DocumentCaptureStep({ onNext, onBack }: { onNext: () => void; on
           ref={videoRef}
           autoPlay
           playsInline
-          className={`w-full h-full object-cover ${currentImage || loading || error ? 'hidden' : 'block'}`}
+          className={`w-full h-full object-cover ${image || loading || error ? 'hidden' : 'block'}`}
           onCanPlay={() => setLoading(false)}
         />
-        {currentImage && <img src={currentImage} alt={`${mode} of ID`} className="w-full h-full object-contain" />}
+        {image && <img src={image} alt="Front of ID" className="w-full h-full object-contain" />}
         <canvas ref={canvasRef} className="hidden" />
       </div>
 
       <div className="mt-6 flex justify-center gap-4">
-        {!currentImage ? (
+        {!image ? (
           <Button onClick={captureImage} disabled={loading || !!error} size="lg" className="w-40">
             <Camera className="mr-2 h-5 w-5" />
             Capture
           </Button>
         ) : (
           <>
-            <Button onClick={retakeImage} variant="outline" size="lg" className="w-40">
+            <Button onClick={retakeImage} variant="outline" size="lg" className="w-40" disabled={isSubmitting}>
               <RefreshCw className="mr-2 h-5 w-5" />
               Retake
             </Button>
-            <Button onClick={confirmImage} size="lg" className="w-40 bg-green-600 hover:bg-green-700">
+            <Button onClick={confirmImage} size="lg" className="w-40 bg-green-600 hover:bg-green-700" disabled={isSubmitting}>
               <Check className="mr-2 h-5 w-5" />
               Confirm
             </Button>

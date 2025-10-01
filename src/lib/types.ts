@@ -15,4 +15,12 @@ export type VerificationResponse = {
   referenceId: string;
 };
 
-export type VerificationStep = 'welcome' | 'document' | 'selfie' | 'audio' | 'verifying' | 'results' | 'error';
+export type VerificationStep =
+  | 'welcome'
+  | 'name'
+  | 'document'
+  | 'selfie'
+  | 'audio'
+  | 'verifying'
+  | 'results'
+  | 'error';

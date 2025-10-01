@@ -1,7 +1,6 @@
-# DS-v0
+# DS-v0 Setup Guide
 
 Please read the submitted Presentation for detailed information on the Project.
-
 
 # DS Setup Guide
 
