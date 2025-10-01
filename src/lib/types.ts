@@ -20,6 +20,7 @@ export type VerificationStep =
   | 'name'
   | 'document'
   | 'selfie'
+  | 'liveness'
   | 'audio'
   | 'verifying'
   | 'results'

@@ -7,6 +7,7 @@ import { NameEntryStep } from '@/components/verification-steps/name-entry-step';
 import { DocumentCaptureStep } from '@/components/verification-steps/document-capture-step';
 import { SelfieCaptureStep } from '@/components/verification-steps/selfie-capture-step';
 import { AudioCaptureStep } from '@/components/verification-steps/audio-capture-step';
+import { LivenessStep } from '@/components/verification-steps/liveness-step';
 import { VerifyingStep } from '@/components/verification-steps/verifying-step';
 import { ResultsStep } from '@/components/verification-steps/results-step';
 import type { VerificationResponse, VerificationStep } from '@/lib/types';
@@ -173,11 +174,13 @@ export function HybridIdGuardian() {
       case 'selfie':
         return (
           <SelfieCaptureStep
-            onNext={() => setStep('audio')}
+            onNext={() => setStep('liveness')}
             onBack={() => setStep('document')}
             onConfirm={handleSelfieConfirm}
           />
         );
+      case 'liveness':
+        return <LivenessStep onNext={() => setStep('audio')} onBack={() => setStep('selfie')} />;
       case 'audio':
         return (
           <AudioCaptureStep
@@ -187,7 +190,7 @@ export function HybridIdGuardian() {
             }}
             onBack={() => {
               setAudioCaptured(false);
-              setStep('selfie');
+              setStep('liveness');
             }}
           />
         );
