@@ -189,8 +189,10 @@ export function AudioCaptureStep({ onBack, onComplete }: AudioCaptureStepProps) 
       });
       setStatus('Voice verification complete.');
       setTimeout(() => {
+        setIsSubmitting(false);
+        setStatus(null);
         onComplete(analysis);
-      }, 400);
+      }, 300);
     } catch (err) {
       console.error('Audio assessment failed:', err);
       setError(

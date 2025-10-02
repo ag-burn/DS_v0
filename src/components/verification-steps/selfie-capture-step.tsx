@@ -82,7 +82,8 @@ export function SelfieCaptureStep({ onBack, onConfirm, onVerified }: SelfieCaptu
     setStatus(null);
     setError(null);
     setErrorContext(null);
-  }, []);
+    void initializeCamera();
+  }, [initializeCamera]);
 
   const handleConfirm = React.useCallback(async () => {
     if (!selfie) return;
@@ -92,6 +93,7 @@ export function SelfieCaptureStep({ onBack, onConfirm, onVerified }: SelfieCaptu
       const result = await onConfirm(selfie);
       if (result.success) {
         const successMessage = result.message ?? 'Face match successful.';
+        setStatus(null);
         setIsSubmitting(false);
         onVerified(successMessage);
         return;

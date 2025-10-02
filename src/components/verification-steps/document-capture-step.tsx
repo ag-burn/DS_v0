@@ -72,7 +72,8 @@ export function DocumentCaptureStep({ onBack, onConfirm, onVerified }: DocumentC
     setStatus(null);
     setError(null);
     setErrorContext(null);
-  }, []);
+    void initializeCamera();
+  }, [initializeCamera]);
 
   const confirmImage = React.useCallback(async () => {
     if (!image) return;
@@ -82,6 +83,7 @@ export function DocumentCaptureStep({ onBack, onConfirm, onVerified }: DocumentC
       const result = await onConfirm(image);
       if (result.success) {
         const successMessage = result.message ?? 'ID details look good.';
+        setStatus(null);
         setIsSubmitting(false);
         onVerified(successMessage);
         return;

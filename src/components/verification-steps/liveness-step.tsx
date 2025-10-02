@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { StepWrapper } from './step-wrapper';
 import { Button } from '@/components/ui/button';
-import { Loader2, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Sparkles } from 'lucide-react';
+import { Loader2, ArrowUp, ArrowLeft, ArrowRight, Sparkles } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { StepErrorPanel, type StepErrorAction } from './step-error-panel';
 import type { LivenessAnalysis } from '@/lib/gemini';
@@ -13,7 +13,6 @@ type DirectionChallenge = { key: string; label: string; Icon: LucideIcon };
 
 const DIRECTIONS: DirectionChallenge[] = [
   { key: 'up', label: 'Look up', Icon: ArrowUp },
-  { key: 'down', label: 'Look down', Icon: ArrowDown },
   { key: 'left', label: 'Look left', Icon: ArrowLeft },
   { key: 'right', label: 'Look right', Icon: ArrowRight },
 ];
@@ -35,6 +34,7 @@ export function LivenessStep({ onBack, onComplete }: LivenessStepProps) {
   const [status, setStatus] = React.useState<string | null>(null);
   const [, setFrames] = React.useState<string[]>([]);
   const framesRef = React.useRef<string[]>([]);
+  const lastChallengeRef = React.useRef<string | null>(null);
 
   const videoRef = React.useRef<HTMLVideoElement>(null);
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
@@ -106,6 +106,7 @@ export function LivenessStep({ onBack, onComplete }: LivenessStepProps) {
     setFrames([]);
     setError(null);
     setErrorContext(null);
+    lastChallengeRef.current = null;
   }, [clearSequenceTimers]);
 
   const processLiveness = React.useCallback(async (directionKey: string, directionLabel: string, capturedFrames: string[]) => {
@@ -134,7 +135,10 @@ export function LivenessStep({ onBack, onComplete }: LivenessStepProps) {
       return;
     }
     clearSequenceTimers();
-    const selected = DIRECTIONS[Math.floor(Math.random() * DIRECTIONS.length)];
+    const availableDirections = DIRECTIONS.filter((direction) => direction.key !== lastChallengeRef.current);
+    const pool = availableDirections.length > 0 ? availableDirections : DIRECTIONS;
+    const selected = pool[Math.floor(Math.random() * pool.length)];
+    lastChallengeRef.current = selected.key;
     setChallenge(selected);
     framesRef.current = [];
     setFrames([]);

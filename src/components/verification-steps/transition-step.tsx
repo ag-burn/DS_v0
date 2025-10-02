@@ -1,13 +1,15 @@
 'use client';
 
+import { Button } from '@/components/ui/button';
 import { CheckCircle2, ArrowRight } from 'lucide-react';
 
 type TransitionStepProps = {
   title: string;
   description?: string;
+  onContinue: () => void;
 };
 
-export function TransitionStep({ title, description }: TransitionStepProps) {
+export function TransitionStep({ title, description, onContinue }: TransitionStepProps) {
   return (
     <div className="p-10 md:p-14 flex flex-col items-center justify-center text-center gap-8 animate-in fade-in zoom-in-95">
       <div className="relative flex items-center justify-center">
@@ -26,6 +28,14 @@ export function TransitionStep({ title, description }: TransitionStepProps) {
           <p className="text-sm md:text-base text-muted-foreground/90">{description}</p>
         )}
       </div>
+      <Button
+        type="button"
+        onClick={onContinue}
+        className="rounded-full bg-emerald-500 px-6 py-2 text-sm font-semibold text-emerald-950 shadow-lg shadow-emerald-500/30 hover:bg-emerald-400"
+      >
+        Continue
+        <ArrowRight className="h-4 w-4" />
+      </Button>
     </div>
   );
 }

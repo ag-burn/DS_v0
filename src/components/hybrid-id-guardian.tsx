@@ -17,7 +17,6 @@ import { AlertTriangle } from 'lucide-react';
 import { Button } from './ui/button';
 import { matchFaces, verifyIdName } from '@/lib/gemini';
 import type { FaceAnalysis, IdAnalysis, LivenessAnalysis, AudioAnalysis } from '@/lib/gemini';
-import { cn } from '@/lib/utils';
 
 export function HybridIdGuardian() {
   const [step, setStep] = React.useState<VerificationStep>('welcome');
@@ -31,47 +30,16 @@ export function HybridIdGuardian() {
   const [livenessAnalysis, setLivenessAnalysis] = React.useState<LivenessAnalysis | null>(null);
   const [audioAnalysis, setAudioAnalysis] = React.useState<AudioAnalysis | null>(null);
   const [transitionDetails, setTransitionDetails] = React.useState<{ title: string; description?: string } | null>(null);
-  const [isFading, setIsFading] = React.useState(false);
-
-  const fadeTimer = React.useRef<NodeJS.Timeout | null>(null);
-  const transitionTimer = React.useRef<NodeJS.Timeout | null>(null);
+  const transitionPendingRef = React.useRef<(() => void) | null>(null);
 
   const runTransition = React.useCallback(
     (details: { title: string; description?: string }, onComplete: () => void) => {
-      if (fadeTimer.current) {
-        clearTimeout(fadeTimer.current);
-        fadeTimer.current = null;
-      }
-      if (transitionTimer.current) {
-        clearTimeout(transitionTimer.current);
-        transitionTimer.current = null;
-      }
-      setIsFading(true);
-      fadeTimer.current = setTimeout(() => {
-        fadeTimer.current = null;
-        setTransitionDetails(details);
-        setStep('transition');
-        setIsFading(false);
-        transitionTimer.current = setTimeout(() => {
-          setTransitionDetails(null);
-          onComplete();
-          transitionTimer.current = null;
-        }, 1000);
-      }, 200);
+      transitionPendingRef.current = onComplete;
+      setTransitionDetails(details);
+      setStep('transition');
     },
     []
   );
-
-  React.useEffect(() => {
-    return () => {
-      if (fadeTimer.current) {
-        clearTimeout(fadeTimer.current);
-      }
-      if (transitionTimer.current) {
-        clearTimeout(transitionTimer.current);
-      }
-    };
-  }, []);
 
   const handleVerification = async (audioOverride?: AudioAnalysis | null) => {
     setStep('verifying');
@@ -87,7 +55,6 @@ export function HybridIdGuardian() {
       const audioScore = Math.max(0, Math.min(1, audioInfo.antispoof ?? 0.6));
       const directionLabels: Record<string, string> = {
         up: 'Look up',
-        down: 'Look down',
         left: 'Look left',
         right: 'Look right',
       };
@@ -157,15 +124,7 @@ export function HybridIdGuardian() {
     setLivenessAnalysis(null);
     setAudioAnalysis(null);
     setTransitionDetails(null);
-    setIsFading(false);
-    if (transitionTimer.current) {
-      clearTimeout(transitionTimer.current);
-      transitionTimer.current = null;
-    }
-    if (fadeTimer.current) {
-      clearTimeout(fadeTimer.current);
-      fadeTimer.current = null;
-    }
+    transitionPendingRef.current = null;
   };
 
   const handleNameNext = (name: string) => {
@@ -331,6 +290,16 @@ export function HybridIdGuardian() {
           <TransitionStep
             title={transitionDetails?.title ?? 'Verification Step Complete'}
             description={transitionDetails?.description}
+            onContinue={() => {
+              const next = transitionPendingRef.current;
+              transitionPendingRef.current = null;
+              setTransitionDetails(null);
+              if (next) {
+                next();
+              } else {
+                setStep('welcome');
+              }
+            }}
           />
         );
       case 'verifying':
@@ -356,12 +325,7 @@ export function HybridIdGuardian() {
   return (
     <Card className="w-full max-w-lg mx-auto shadow-2xl overflow-hidden bg-card/80 backdrop-blur-sm border-border/20">
       <CardContent className="p-0">
-        <div
-          className={cn(
-            'animate-in fade-in duration-500',
-            isFading && 'animate-out fade-out duration-200'
-          )}
-        >
+        <div className="animate-in fade-in duration-500">
           {renderStep()}
         </div>
       </CardContent>
