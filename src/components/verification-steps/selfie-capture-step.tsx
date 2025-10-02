@@ -6,12 +6,12 @@ import { Camera, Check, Loader2, RefreshCw, ShieldCheck } from 'lucide-react';
 import { StepErrorPanel } from './step-error-panel';
 
 type SelfieCaptureStepProps = {
-  onNext: () => void;
   onBack: () => void;
   onConfirm: (image: string) => Promise<{ success: boolean; message: string }>;
+  onVerified: (message: string) => void;
 };
 
-export function SelfieCaptureStep({ onNext, onBack, onConfirm }: SelfieCaptureStepProps) {
+export function SelfieCaptureStep({ onBack, onConfirm, onVerified }: SelfieCaptureStepProps) {
   const [stream, setStream] = React.useState<MediaStream | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
@@ -91,24 +91,22 @@ export function SelfieCaptureStep({ onNext, onBack, onConfirm }: SelfieCaptureSt
     try {
       const result = await onConfirm(selfie);
       if (result.success) {
-        setStatus(result.message ?? 'Face match successful.');
-        setTimeout(() => {
-          onNext();
-        }, 900);
-      } else {
-        setError(result.message ?? 'We could not match your face to the ID.');
-        setErrorContext('verification');
-        setStatus(null);
+        const successMessage = result.message ?? 'Face match successful.';
+        setIsSubmitting(false);
+        onVerified(successMessage);
+        return;
       }
+      setError(result.message ?? 'We could not match your face to the ID.');
+      setErrorContext('verification');
+      setStatus(null);
     } catch (err) {
       console.error('Error confirming selfie:', err);
       setError('We could not validate the selfie. Please try again.');
       setErrorContext('verification');
       setStatus(null);
-    } finally {
-      setIsSubmitting(false);
     }
-  }, [onConfirm, onNext, selfie]);
+    setIsSubmitting(false);
+  }, [onConfirm, onVerified, selfie]);
 
   const errorActions = React.useMemo(() => {
     if (!error) return null;

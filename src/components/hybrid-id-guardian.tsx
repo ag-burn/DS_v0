@@ -8,6 +8,7 @@ import { DocumentCaptureStep } from '@/components/verification-steps/document-ca
 import { SelfieCaptureStep } from '@/components/verification-steps/selfie-capture-step';
 import { AudioCaptureStep } from '@/components/verification-steps/audio-capture-step';
 import { LivenessStep } from '@/components/verification-steps/liveness-step';
+import { TransitionStep } from '@/components/verification-steps/transition-step';
 import { VerifyingStep } from '@/components/verification-steps/verifying-step';
 import { ResultsStep } from '@/components/verification-steps/results-step';
 import type { VerificationResponse, VerificationStep } from '@/lib/types';
@@ -16,6 +17,7 @@ import { AlertTriangle } from 'lucide-react';
 import { Button } from './ui/button';
 import { matchFaces, verifyIdName } from '@/lib/gemini';
 import type { FaceAnalysis, IdAnalysis, LivenessAnalysis, AudioAnalysis } from '@/lib/gemini';
+import { cn } from '@/lib/utils';
 
 export function HybridIdGuardian() {
   const [step, setStep] = React.useState<VerificationStep>('welcome');
@@ -28,6 +30,48 @@ export function HybridIdGuardian() {
   const [faceAnalysis, setFaceAnalysis] = React.useState<FaceAnalysis | null>(null);
   const [livenessAnalysis, setLivenessAnalysis] = React.useState<LivenessAnalysis | null>(null);
   const [audioAnalysis, setAudioAnalysis] = React.useState<AudioAnalysis | null>(null);
+  const [transitionDetails, setTransitionDetails] = React.useState<{ title: string; description?: string } | null>(null);
+  const [isFading, setIsFading] = React.useState(false);
+
+  const fadeTimer = React.useRef<NodeJS.Timeout | null>(null);
+  const transitionTimer = React.useRef<NodeJS.Timeout | null>(null);
+
+  const runTransition = React.useCallback(
+    (details: { title: string; description?: string }, onComplete: () => void) => {
+      if (fadeTimer.current) {
+        clearTimeout(fadeTimer.current);
+        fadeTimer.current = null;
+      }
+      if (transitionTimer.current) {
+        clearTimeout(transitionTimer.current);
+        transitionTimer.current = null;
+      }
+      setIsFading(true);
+      fadeTimer.current = setTimeout(() => {
+        fadeTimer.current = null;
+        setTransitionDetails(details);
+        setStep('transition');
+        setIsFading(false);
+        transitionTimer.current = setTimeout(() => {
+          setTransitionDetails(null);
+          onComplete();
+          transitionTimer.current = null;
+        }, 1000);
+      }, 200);
+    },
+    []
+  );
+
+  React.useEffect(() => {
+    return () => {
+      if (fadeTimer.current) {
+        clearTimeout(fadeTimer.current);
+      }
+      if (transitionTimer.current) {
+        clearTimeout(transitionTimer.current);
+      }
+    };
+  }, []);
 
   const handleVerification = async (audioOverride?: AudioAnalysis | null) => {
     setStep('verifying');
@@ -112,6 +156,16 @@ export function HybridIdGuardian() {
     setFaceAnalysis(null);
     setLivenessAnalysis(null);
     setAudioAnalysis(null);
+    setTransitionDetails(null);
+    setIsFading(false);
+    if (transitionTimer.current) {
+      clearTimeout(transitionTimer.current);
+      transitionTimer.current = null;
+    }
+    if (fadeTimer.current) {
+      clearTimeout(fadeTimer.current);
+      fadeTimer.current = null;
+    }
   };
 
   const handleNameNext = (name: string) => {
@@ -198,26 +252,51 @@ export function HybridIdGuardian() {
       case 'document':
         return (
           <DocumentCaptureStep
-            onNext={() => setStep('selfie')}
             onBack={() => setStep('name')}
             onConfirm={handleDocumentConfirm}
+            onVerified={(message) =>
+              runTransition(
+                {
+                  title: 'Document Check Verified',
+                  description: message,
+                },
+                () => setStep('selfie')
+              )
+            }
           />
         );
       case 'selfie':
         return (
           <SelfieCaptureStep
-            onNext={() => setStep('liveness')}
             onBack={() => setStep('document')}
             onConfirm={handleSelfieConfirm}
+            onVerified={(message) =>
+              runTransition(
+                {
+                  title: 'Selfie Check Verified',
+                  description: message,
+                },
+                () => setStep('liveness')
+              )
+            }
           />
         );
       case 'liveness':
         return (
           <LivenessStep
-            onNext={() => setStep('audio')}
             onBack={() => setStep('selfie')}
             onComplete={(analysis) => {
               setLivenessAnalysis(analysis);
+              const description =
+                analysis.explanations?.[0] ??
+                `Movement matched the "${analysis.challenge_direction}" challenge.`;
+              runTransition(
+                {
+                  title: 'Liveness Check Verified',
+                  description,
+                },
+                () => setStep('audio')
+              );
             }}
           />
         );
@@ -230,8 +309,28 @@ export function HybridIdGuardian() {
             }}
             onComplete={(analysis) => {
               setAudioAnalysis(analysis);
-              handleVerification(analysis);
+              if (analysis.phrase_match === false) {
+                void handleVerification(analysis);
+                return;
+              }
+              const description = `Phrase confirmed with ${Math.round((analysis.antispoof ?? 0.6) * 100)}% anti-spoof confidence.`;
+              runTransition(
+                {
+                  title: 'Voice Check Verified',
+                  description,
+                },
+                () => {
+                  void handleVerification(analysis);
+                }
+              );
             }}
+          />
+        );
+      case 'transition':
+        return (
+          <TransitionStep
+            title={transitionDetails?.title ?? 'Verification Step Complete'}
+            description={transitionDetails?.description}
           />
         );
       case 'verifying':
@@ -257,7 +356,12 @@ export function HybridIdGuardian() {
   return (
     <Card className="w-full max-w-lg mx-auto shadow-2xl overflow-hidden bg-card/80 backdrop-blur-sm border-border/20">
       <CardContent className="p-0">
-        <div className="animate-in fade-in duration-500">
+        <div
+          className={cn(
+            'animate-in fade-in duration-500',
+            isFading && 'animate-out fade-out duration-200'
+          )}
+        >
           {renderStep()}
         </div>
       </CardContent>

@@ -20,6 +20,7 @@ export type VerificationStep =
   | 'selfie'
   | 'liveness'
   | 'audio'
+  | 'transition'
   | 'verifying'
   | 'results'
   | 'error';

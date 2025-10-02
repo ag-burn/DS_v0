@@ -22,11 +22,10 @@ type SequencePhase = 'idle' | 'look-straight' | 'challenge' | 'processing' | 'co
 
 type LivenessStepProps = {
   onBack: () => void;
-  onNext: () => void;
   onComplete: (analysis: LivenessAnalysis) => void;
 };
 
-export function LivenessStep({ onBack, onNext, onComplete }: LivenessStepProps) {
+export function LivenessStep({ onBack, onComplete }: LivenessStepProps) {
   const [stream, setStream] = React.useState<MediaStream | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
@@ -114,13 +113,9 @@ export function LivenessStep({ onBack, onNext, onComplete }: LivenessStepProps) 
     setStatus('Analyzing liveness with Gemini...');
     try {
       const analysis = await assessLiveness({ frames: capturedFrames, challengeDirection: directionKey });
-      setStatus('Liveness confirmed. Moving ahead.');
       setPhase('complete');
+      setStatus('Liveness confirmed.');
       onComplete(analysis);
-      window.setTimeout(() => {
-        setStatus(null);
-        onNext();
-      }, 800);
     } catch (err) {
       console.error('Liveness assessment failed:', err);
       setError(
@@ -132,7 +127,7 @@ export function LivenessStep({ onBack, onNext, onComplete }: LivenessStepProps) 
       setPhase('idle');
       setStatus(null);
     }
-  }, [onComplete, onNext]);
+  }, [onComplete]);
 
   const startSequence = React.useCallback(() => {
     if (loading || error) {

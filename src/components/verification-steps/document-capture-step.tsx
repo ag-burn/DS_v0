@@ -6,12 +6,12 @@ import { Camera, Check, Loader2, RefreshCw, ShieldCheck } from 'lucide-react';
 import { StepErrorPanel } from './step-error-panel';
 
 type DocumentCaptureStepProps = {
-  onNext: () => void;
   onBack: () => void;
-  onConfirm: (image: string) => Promise<{ success: boolean; message: string; extractedName?: string }>
+  onConfirm: (image: string) => Promise<{ success: boolean; message: string; extractedName?: string }>;
+  onVerified: (message: string) => void;
 };
 
-export function DocumentCaptureStep({ onNext, onBack, onConfirm }: DocumentCaptureStepProps) {
+export function DocumentCaptureStep({ onBack, onConfirm, onVerified }: DocumentCaptureStepProps) {
   const [image, setImage] = React.useState<string | null>(null);
   const [stream, setStream] = React.useState<MediaStream | null>(null);
   const [loading, setLoading] = React.useState(true);
@@ -81,24 +81,22 @@ export function DocumentCaptureStep({ onNext, onBack, onConfirm }: DocumentCaptu
     try {
       const result = await onConfirm(image);
       if (result.success) {
-        setStatus(result.message ?? 'ID details look good.');
-        setTimeout(() => {
-          onNext();
-        }, 900);
-      } else {
-        setError(result.message);
-        setErrorContext('verification');
-        setStatus(null);
+        const successMessage = result.message ?? 'ID details look good.';
+        setIsSubmitting(false);
+        onVerified(successMessage);
+        return;
       }
+      setError(result.message);
+      setErrorContext('verification');
+      setStatus(null);
     } catch (err) {
       console.error('Error confirming ID:', err);
       setError('We could not verify the ID. Please try again.');
       setErrorContext('verification');
       setStatus(null);
-    } finally {
-      setIsSubmitting(false);
     }
-  }, [image, onConfirm, onNext]);
+    setIsSubmitting(false);
+  }, [image, onConfirm, onVerified]);
 
   const errorActions = React.useMemo(() => {
     if (!error) return null;
